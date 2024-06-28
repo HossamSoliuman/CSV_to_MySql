@@ -12,6 +12,7 @@ if ($conn->connect_error) {
 
 $insertedCount = 0;
 $duplicateCount = 0;
+$invalidCategoryCount = 0;
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
     $file = $_FILES['csv_file']['tmp_name'];
@@ -21,32 +22,37 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
         while (($data = fgetcsv($handle, 1000, ",")) !== FALSE) {
             $row = array_combine($header, $data);
 
-            $country = getId($conn, 'countries', 'Country', $row['Country']);
-            list($city_name, $state_name) = explode(', ', $row['Search Area']);
-            $city = getId($conn, 'cities', 'City', $city_name);
-            $state = getId($conn, 'states', 'State', $state_name);
-
-            $company_name = $conn->real_escape_string($row['Business Name']);
-            $address = $conn->real_escape_string($row['Address']);
-            $contact_email = isset($row['Email']) ? $conn->real_escape_string($row['Email']) : '';
-            $website = isset($row['Website']) ? $conn->real_escape_string($row['Website']) : '';
             $category = isset($row['Categories']) ? $conn->real_escape_string($row['Categories']) : '';
-            $phone = isset($row['Phone']) ? $conn->real_escape_string($row['Phone']) : '';
 
-            $sql = "SELECT id FROM businesses WHERE company_name='$company_name' AND address='$address' AND city_id='$city' AND state_id='$state' AND country_id='$country' AND contact_email='$contact_email'";
-            $result = $conn->query($sql);
+            if (in_array($category, ['Business Broker', 'Business Brokers', 'Real Estate Agents'])) {
+                $country = getId($conn, 'countries', 'name', $row['Country']);
+                list($city_name, $state_name) = explode(', ', $row['Search Area']);
+                $state = getId($conn, 'state', 'name', $state_name, $country);
+                $city = getId($conn, 'city', 'name', $city_name, $state);
 
-            if ($result->num_rows == 0) {
-                $sql = "INSERT INTO businesses (company_name, address, city_id, state_id, country_id, contact_email, website, services, phone)
-                        VALUES ('$company_name', '$address', '$city', '$state', '$country', '$contact_email', '$website', '$category', '$phone')";
+                $company = $conn->real_escape_string($row['Business Name']);
+                $address = $conn->real_escape_string($row['Address']);
+                $contact_email = isset($row['Email']) ? $conn->real_escape_string($row['Email']) : '';
+                $website = isset($row['Website']) ? $conn->real_escape_string($row['Website']) : '';
+                $phone_number = isset($row['Phone']) ? $conn->real_escape_string($row['Phone']) : '';
 
-                if ($conn->query($sql) === TRUE) {
-                    $insertedCount++;
+                $sql = "SELECT broker_id FROM agencies WHERE company='$company' AND address='$address' AND city='$city' AND state='$state' AND country='$country' AND contact_email='$contact_email'";
+                $result = $conn->query($sql);
+
+                if ($result->num_rows == 0) {
+                    $sql = "INSERT INTO agencies (userid, row_id, company, type, slug, tagline, address, city, state, country, website, contact_email, phone_number, fax, facebook_page_link, twitter_page_link, instagram_page_link, pininterest_page_link, youtuble_page_link, linkedin_page_link, contact_name, image, description, services, about, use_registered_email, is_featured, view_count, IsClaimed, ZipPostalCode)
+                            VALUES (1, 'dummy_row_id', '$company', 1, 'dummy_slug', '', '$address', '$city', '$state', '$country', '$website', '$contact_email', '$phone_number', 0, '', '', '', '', '', '', '', '', '', '', '', 0, 0, '', b'0', '')";
+
+                    if ($conn->query($sql) === TRUE) {
+                        $insertedCount++;
+                    } else {
+                        echo "Error: " . $sql . "<br>" . $conn->error;
+                    }
                 } else {
-                    echo "Error: " . $sql . "<br>" . $conn->error;
+                    $duplicateCount++;
                 }
             } else {
-                $duplicateCount++;
+                $invalidCategoryCount++;
             }
         }
         fclose($handle);
@@ -55,20 +61,51 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
 
 $conn->close();
 
-header("Location: index.php?inserted=$insertedCount&duplicates=$duplicateCount");
+header("Location: index.php?inserted=$insertedCount&duplicates=$duplicateCount&invalid=$invalidCategoryCount");
 exit();
 
-function getId($conn, $table, $column, $value)
+function getId($conn, $table, $column, $value, $parentId = null)
 {
     $value = $conn->real_escape_string($value);
-    $sql = "SELECT id FROM $table WHERE name='$value'";
+
+    // Determine primary key and parent column based on table
+    switch ($table) {
+        case 'countries':
+            $primaryKey = 'id';
+            $column = 'name'; // Correct column name
+            break;
+        case 'state':
+            $primaryKey = 'state_id';
+            $parentColumn = 'country_id';
+            $column = 'name'; // Correct column name
+            break;
+        case 'city':
+            $primaryKey = 'city_id';
+            $parentColumn = 'state_id';
+            $column = 'name'; // Correct column name
+            break;
+        default:
+            die("Error: Unknown table '$table'");
+    }
+
+    $condition = "$column='$value'";
+    if ($parentId !== null) {
+        $condition .= " AND $parentColumn='$parentId'";
+    }
+
+    $sql = "SELECT $primaryKey FROM $table WHERE $condition";
     $result = $conn->query($sql);
 
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
-        return $row['id'];
+        return $row[$primaryKey];
     } else {
-        $sql = "INSERT INTO $table (name) VALUES ('$value')";
+        if ($parentId !== null) {
+            $sql = "INSERT INTO $table ($column, $parentColumn) VALUES ('$value', '$parentId')";
+        } else {
+            $sql = "INSERT INTO $table ($column) VALUES ('$value')";
+        }
+
         if ($conn->query($sql) === TRUE) {
             return $conn->insert_id;
         } else {
@@ -76,3 +113,17 @@ function getId($conn, $table, $column, $value)
         }
     }
 }
+
+$conn = new mysqli("localhost", "username", "password", "csv-mysql");
+
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+$countryId = getId($conn, 'countries', 'name', 'Canada');
+$stateId = getId($conn, 'state', 'name', 'Ontario', $countryId);
+$cityId = getId($conn, 'city', 'name', 'Toronto', $stateId);
+
+echo "Country ID: $countryId, State ID: $stateId, City ID: $cityId";
+
+$conn->close();

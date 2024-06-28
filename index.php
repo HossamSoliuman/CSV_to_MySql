@@ -51,10 +51,11 @@
 <body>
     <div class="container">
         <?php
-        if (isset($_GET['inserted']) && isset($_GET['duplicates'])) {
+        if (isset($_GET['inserted']) && isset($_GET['duplicates']) && isset($_GET['invalid'])) {
             $inserted = intval($_GET['inserted']);
             $duplicates = intval($_GET['duplicates']);
-            echo "<div class='message'>Success! $inserted records inserted, $duplicates duplicates found and skipped.</div>";
+            $invalid = intval($_GET['invalid']);
+            echo "<div class='message'>Success! $inserted records inserted, $duplicates duplicates found and skipped, $invalid records with invalid categories skipped.</div>";
         }
         ?>
         <form action="upload.php" method="POST" enctype="multipart/form-data">
