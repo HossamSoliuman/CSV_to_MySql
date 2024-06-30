@@ -31,7 +31,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
                 $city = getId($conn, 'city', 'name', $city_name, $state);
 
                 $company = $conn->real_escape_string($row['Business Name']);
-                $address = $conn->real_escape_string($row['Address']);
+                $slug = strtolower(str_replace(' ', '-', $company));
+                $zipPostalCode = substr($row['Address'], -7);
+                $address = preg_replace('/,.*$/', '', $conn->real_escape_string($row['Address']));
                 $contact_email = isset($row['Email']) ? $conn->real_escape_string($row['Email']) : '';
                 $website = isset($row['Website']) ? $conn->real_escape_string($row['Website']) : '';
                 $phone_number = isset($row['Phone']) ? $conn->real_escape_string($row['Phone']) : '';
@@ -41,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
 
                 if ($result->num_rows == 0) {
                     $sql = "INSERT INTO agencies (userid, row_id, company, type, slug, tagline, address, city, state, country, website, contact_email, phone_number, fax, facebook_page_link, twitter_page_link, instagram_page_link, pininterest_page_link, youtuble_page_link, linkedin_page_link, contact_name, image, description, services, about, use_registered_email, is_featured, view_count, IsClaimed, ZipPostalCode)
-                            VALUES (1, 'dummy_row_id', '$company', 1, 'dummy_slug', '', '$address', '$city', '$state', '$country', '$website', '$contact_email', '$phone_number', 0, '', '', '', '', '', '', '', '', '', '', '', 0, 0, '', b'0', '')";
+                            VALUES (1, 'dummy_row_id', '$company', 1, '$slug', '', '$address', '$city', '$state', '$country', '$website', '$contact_email', '$phone_number', 0, '', '', '', '', '', '', '', '', '', '', '', 0, 0, '', b'0', '$zipPostalCode')";
 
                     if ($conn->query($sql) === TRUE) {
                         $insertedCount++;
@@ -68,21 +70,20 @@ function getId($conn, $table, $column, $value, $parentId = null)
 {
     $value = $conn->real_escape_string($value);
 
-    // Determine primary key and parent column based on table
     switch ($table) {
         case 'countries':
             $primaryKey = 'id';
-            $column = 'name'; // Correct column name
+            $column = 'name';
             break;
         case 'state':
             $primaryKey = 'state_id';
             $parentColumn = 'country_id';
-            $column = 'name'; // Correct column name
+            $column = 'name';
             break;
         case 'city':
             $primaryKey = 'city_id';
             $parentColumn = 'state_id';
-            $column = 'name'; // Correct column name
+            $column = 'name';
             break;
         default:
             die("Error: Unknown table '$table'");
